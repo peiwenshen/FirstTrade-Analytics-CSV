@@ -19,6 +19,7 @@ from data_processing.data_cleaner import (
     get_portfolio_daily_values,
 )
 from data_processing.data_downloader import download_stock_data
+from data_processing.split_adjuster import build_splits_cache, get_first_purchase_dates
 
 
 # Configuration
@@ -59,6 +60,8 @@ def analyze_portfolio(
     compare_indices: List[str],
     start_date: str,
     end_date: str,
+    splits_cache: Dict = None,
+    first_purchase_dates: Dict[str, str] = None,
 ) -> Tuple[List[Dict[str, float]], List[str]]:
     """
     Run portfolio analysis calculations.
@@ -69,6 +72,8 @@ def analyze_portfolio(
     - compare_indices (List[str]): List of indices to compare against.
     - start_date (str): Start date for analysis.
     - end_date (str): End date for analysis.
+    - splits_cache (Dict): Optional cache of stock splits data.
+    - first_purchase_dates (Dict[str, str]): Optional mapping of ticker to first purchase date.
 
     Returns:
     - Tuple[List[Dict[str, float]], List[str]]: Portfolio daily values and labels.
@@ -76,15 +81,16 @@ def analyze_portfolio(
     portfolios_daily_values = []
     labels = []
 
-    # Personal portfolio
+    # Personal portfolio (with date-aware split adjustments)
     daily_values = get_daily_cash_and_stocks(transactions)
     portfolio_daily_values = get_portfolio_daily_values(
-        daily_values, start_date, end_date, historical_data
+        daily_values, start_date, end_date, historical_data,
+        splits_cache, first_purchase_dates
     )
     portfolios_daily_values.append(portfolio_daily_values)
     labels.append("My Portfolio")
 
-    # Index comparisons
+    # Index comparisons (indices handle splits internally)
     for index in compare_indices:
         daily_values_index = get_daily_cash_and_chosen_index(
             transactions, historical_data, index
@@ -180,9 +186,19 @@ def main():
     # Download stock data
     historical_data = download_stock_data(tickers, start_date)
 
+    # Build splits cache for date-aware adjustments (handles yfinance price adjustments)
+    print("\nBuilding stock splits cache...")
+    splits_cache = build_splits_cache(tickers)
+    first_purchase_dates = get_first_purchase_dates(transactions)
+    if splits_cache:
+        print(f"  Found splits for: {', '.join(splits_cache.keys())}")
+    else:
+        print("  No relevant splits found")
+
     # Analyze portfolio
     portfolios_daily_values, labels = analyze_portfolio(
-        transactions, historical_data, compare_indices, start_date, end_date
+        transactions, historical_data, compare_indices, start_date, end_date,
+        splits_cache, first_purchase_dates
     )
 
     # Display results

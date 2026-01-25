@@ -147,6 +147,8 @@ def get_portfolio_daily_values(
     start_date: str,
     end_date: str,
     historical_data: pd.DataFrame,
+    splits_cache: Dict = None,
+    first_purchase_dates: Dict[str, str] = None,
 ) -> Dict[str, float]:
     """
     Calculate the portfolio's daily values over a specified date range based on transactions and historical stock data.
@@ -158,20 +160,39 @@ def get_portfolio_daily_values(
     - start_date (str): The start date of the period for calculating daily portfolio values.
     - end_date (str): The end date of the period.
     - historical_data (pd.DataFrame): The DataFrame containing historical stock data, indexed by date.
+    - splits_cache (Dict): Optional cache of stock splits data.
+    - first_purchase_dates (Dict[str, str]): Optional mapping of ticker to first purchase date.
 
     Returns:
     - Dict[str, float]: A dictionary mapping each date within the specified range to the total value of the portfolio for that date.
     """
+    from data_processing.split_adjuster import get_split_adjustment_for_date
+
     portfolio_daily_values: Dict[str, float] = {}
     date_range = pd.date_range(start=start_date, end=end_date)
     last_known_value = 0.0
     last_holdings: Dict[str, int] = {}
     last_cash = 0
+
     for single_date in date_range:
         date_str = single_date.strftime("%Y-%m-%d")
         day_data = daily_values.get(date_str, {})
 
         current_holdings = day_data.get("holding_stock", last_holdings)
+
+        # Apply date-aware split adjustments if splits_cache provided
+        if splits_cache and first_purchase_dates:
+            adjusted_holdings = {}
+            for ticker, quantity in current_holdings.items():
+                if ticker and ticker in splits_cache:
+                    purchase_date = first_purchase_dates.get(ticker, start_date)
+                    ratio = get_split_adjustment_for_date(
+                        ticker, date_str, purchase_date, splits_cache
+                    )
+                    adjusted_holdings[ticker] = quantity * ratio
+                else:
+                    adjusted_holdings[ticker] = quantity
+            current_holdings = adjusted_holdings
 
         last_known_value = get_daily_value_of_holdings(
             historical_data, date_str, current_holdings, last_known_value
@@ -181,6 +202,6 @@ def get_portfolio_daily_values(
         )
 
         # Update the last holdings for the next iteration
-        last_holdings = current_holdings if current_holdings else last_holdings
+        last_holdings = day_data.get("holding_stock", last_holdings)
         last_cash = day_data.get("current_value", last_cash)
     return portfolio_daily_values
